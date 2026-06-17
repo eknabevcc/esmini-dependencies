@@ -33,6 +33,34 @@ ZIP_MIN_VERSION=13
 
 parallel_make_flag="-j4"
 
+# Whether to pack the result into the final 7z archive. Disabled by default,
+# enable with the --zip (or -z) command line argument.
+create_7z=0
+
+usage() {
+    echo "Usage: $0 [options]"
+    echo "  -z, --zip    Create the final 7z archive after building"
+    echo "  -h, --help   Show this help message and exit"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -z|--zip)
+            create_7z=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
 if [[ "$OSTYPE" =~ ^(msys|cygwin)$ ]]; then
     # Visual Studio 2022 using toolkit from Visual Studio 2017
     GENERATOR=("Visual Studio 17 2022")
@@ -56,10 +84,16 @@ fi
 
 if [[ "$OSTYPE" =~ ^(msys|cygwin)$ ]]; then
     target_dir="v10"
+    zfilename="osi_v10.7z"
+    z_exe="/c/Program Files/7-Zip/7z.exe"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     target_dir="linux"
+    zfilename="osi_linux.7z"
+    z_exe=7za
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     target_dir="mac"
+    zfilename="osi_mac.7z"
+    z_exe=7zz
     macos_arch="arm64;x86_64"
 else
     echo Unknown OSTYPE: $OSTYPE
@@ -152,6 +186,14 @@ function build {
     echo ------------------------ Installing Protobuf $1 ------------------------------------
     cd $osi_root_dir
 
+    if [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "darwin"* ]]; then
+        ZLIB_FILE_RELEASE=libz.a
+        ZLIB_FILE_DEBUG=libzd.a
+    elif [[ "$OSTYPE" =~ ^(msys|cygwin)$ ]]; then
+        ZLIB_FILE_RELEASE=zlibstatic.lib
+        ZLIB_FILE_DEBUG=zlibstaticd.lib
+    fi
+
     if [ ! -d protobuf$folder_postfix ]; then
         git clone https://github.com/protocolbuffers/protobuf.git --depth 1 --branch v$PROTOBUF_VERSION protobuf$folder_postfix
         cd protobuf$folder_postfix
@@ -159,18 +201,6 @@ function build {
         cd build-code
 
         export INSTALL_PROTOBUF_DIR=../protobuf-install
-
-        if [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "darwin"* ]]; then
-            ZLIB_FILE_RELEASE=libz.a
-            ZLIB_FILE_DEBUG=libzd.a
-        elif [[ "$OSTYPE" =~ ^(msys|cygwin)$ ]]; then
-            ZLIB_FILE_RELEASE=zlibstatic.lib
-            ZLIB_FILE_DEBUG=zlibstaticd.lib
-
-            # Needed so libprotobuf.dll can find it, thus enabling protoc.ex    e to use libprotobuf.dll
-            # ZLIB_BIN_PATH="../../zlib/install/bin"
-            # export PATH="$ZLIB_BIN_PATH:$PATH"
-        fi
 
         if [ $DYNAMIC_LINKING == "1" ]; then
             if [[ "$OSTYPE" =~ ^(msys|cygwin)$ ]]; then
@@ -270,6 +300,7 @@ function build {
 
     cp open-simulation-interface$folder_postfix/install/release/include/osi3/* $target_dir/include
     cp -r protobuf$folder_postfix/protobuf-install/include/google $target_dir/include
+    cp zlib/install/include/*.h $target_dir/include
 
     if [ $DYNAMIC_LINKING == "1" ]; then
         target_lib_dir_root=$target_dir/lib-dyn
@@ -278,13 +309,20 @@ function build {
     fi
     mkdir $target_lib_dir_root
     variants=("debug" "release")
+
     for variant in "${variants[@]}"; do
 
-	if [[ "$OSTYPE" == "darwin"* ]] && [[ $variant == "debug" ]]; then
-	    continue
-	fi
+        if [[ "$OSTYPE" == "darwin"* ]] && [[ $variant == "debug" ]]; then
+            continue
+        fi
         target_lib_dir=$target_lib_dir_root/$variant
         mkdir $target_lib_dir
+
+        if [ $variant == "debug" ]; then
+            cp zlib/install/lib/$ZLIB_FILE_DEBUG $target_lib_dir
+        else
+            cp zlib/install/lib/$ZLIB_FILE_RELEASE $target_lib_dir
+        fi
 
         if [ $DYNAMIC_LINKING == "1" ]; then
 
@@ -336,3 +374,14 @@ function build {
 
 build static
 build dynamic
+
+if [ $create_7z == "1" ]; then
+    echo ------------------------ Packing $zfilename ------------------------------------
+    "$z_exe" a -r $zfilename -m0=LZMA -bb1 -spf -snl $target_dir/*
+    # unpack with: 7z x <filename>
+else
+    echo "Skipping 7z archive creation (use --zip to enable)"
+fi
+
+echo ------------------------ Done ------------------------------------
+cd $osi_root_dir
