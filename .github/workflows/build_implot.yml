@@ -32,7 +32,7 @@ jobs:
 
       - name: Build Implot
         shell: bash
-        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./generate_implot_libs.sh
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./implot/generate_implot_libs.sh
 
       - name: Bundle platform package
         shell: bash

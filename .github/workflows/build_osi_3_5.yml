@@ -27,7 +27,7 @@ jobs:
 
       - name: Build OSI
         shell: bash
-        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./generate_osi_libs.sh
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./osi/generate_osi_3_5_libs.sh
 
       - name: Bundle platform package
         shell: bash
