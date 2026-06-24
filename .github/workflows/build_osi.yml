@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 env:
-  OSI_REPOSITORY: OpenSimulationInterface/osi-cpp
-  OSI_REF: 82add6cd443ea1e1dd81b3023ba756b74913c43b
+  OSI_REPOSITORY: slundel6/osi-cpp
+  OSI_REF: 3e62b39b198c902d221dc14868396ef8d5faa3e9
 
 jobs:
   build:
@@ -311,19 +311,40 @@ jobs:
       - name: Stage Protobuf and Dependencies
         shell: bash
         run: |
-          # Windows-specific moves first to prevent duplication in later generic copy
-          if [ "$RUNNER_OS" = "Windows" ] && [ "${{ matrix.linkage }}" = "dynamic" ]; then
-            find "$VCPKG_BIN_DIR" -maxdepth 1 -name "abseil_dll.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
-            find "$VCPKG_LIB_DIR" -maxdepth 1 -name "abseil_dll.lib" -exec mv {} "$TARGET_LIB_DIR/" \;
-            if [ "${{ matrix.configuration }}" = "Release" ]; then
-              find "$VCPKG_BIN_DIR" -maxdepth 1 -name "libprotobuf.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
-            else
-              find "$VCPKG_BIN_DIR" -maxdepth 1 -name "libprotobufd.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
+          # Dynamic-specific moves first to prevent duplication in later generic copy
+          if [ "${{ matrix.linkage }}" = "dynamic" ]; then
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              # Move abseil
+              find "$VCPKG_BIN_DIR" -maxdepth 1 -name "abseil_dll.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
+              find "$VCPKG_LIB_DIR" -maxdepth 1 -name "abseil_dll.lib" -exec mv {} "$TARGET_LIB_DIR/" \;
+              if [ "${{ matrix.configuration }}" = "Release" ]; then
+                find "$VCPKG_BIN_DIR" -maxdepth 1 -name "libprotobuf.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
+                find "$VCPKG_LIB_DIR" -maxdepth 1 -name "libprotobuf.lib" -exec mv {} "$TARGET_LIB_DIR/" \;
+                find "$VCPKG_BIN_DIR" -maxdepth 1 -name "zlib1.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
+                find "$VCPKG_LIB_DIR" -maxdepth 1 -name "zlib.lib" -exec mv {} "$TARGET_LIB_DIR/" \;
+              else
+                find "$VCPKG_BIN_DIR" -maxdepth 1 -name "libprotobufd.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
+                find "$VCPKG_LIB_DIR" -maxdepth 1 -name "libprotobufd.lib" -exec mv {} "$TARGET_LIB_DIR/" \;
+                find "$VCPKG_BIN_DIR" -maxdepth 1 -name "zlibd1.dll" -exec mv {} "$TARGET_LIB_DIR/" \;
+                find "$VCPKG_LIB_DIR" -maxdepth 1 -name "zlibd.lib" -exec mv {} "$TARGET_LIB_DIR/" \;
+              fi
+            elif [ "$RUNNER_OS" = "Linux" ]; then
+              # Move dynamic libraries only (not static .a files)
+              find "$VCPKG_LIB_DIR" -maxdepth 1 -name "*protobuf*.so*" -exec mv {} "$TARGET_LIB_DIR/" \;
+              find "$VCPKG_LIB_DIR" -maxdepth 1 -name "libz.so*" -exec mv {} "$TARGET_LIB_DIR/" \;
+            elif [ "$RUNNER_OS" = "macOS" ]; then
+              # Move dynamic libraries only (not static .a files)
+              find "$VCPKG_LIB_DIR" -maxdepth 1 -name "*protobuf*.dylib*" -exec mv {} "$TARGET_LIB_DIR/" \;
+              find "$VCPKG_LIB_DIR" -maxdepth 1 -name "libz*.dylib*" -exec mv {} "$TARGET_LIB_DIR/" \;
             fi
           fi
 
-          # Generic move/copy only acts on files still in source directory
-          find "$VCPKG_LIB_DIR" -maxdepth 1 -name "*protobuf*" -exec mv {} "$TARGET_LIB_DIR/" \;
+          # Only move protobuf for static builds (dynamic already handled above)
+          if [ "${{ matrix.linkage }}" = "static" ]; then
+            find "$VCPKG_LIB_DIR" -maxdepth 1 -name "*protobuf*" -exec mv {} "$TARGET_LIB_DIR/" \;
+          fi
+
+          # Copy remaining static libraries to deps folder
           find "$VCPKG_LIB_DIR" -maxdepth 1 \( -type f -o -type l \) \( -name "*.lib" -o -name "*.a" \) -exec cp -RP {} "$TARGET_DEPS_LIB_DIR/" \;
 
       - name: Archive Artifacts Windows
