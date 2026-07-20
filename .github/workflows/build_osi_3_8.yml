@@ -1,0 +1,104 @@
+name: Build & release OSI 3.8
+
+on:
+  push:
+    tags:
+      - osi-v3.8.[0-9]+*
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04, macos-14]
+        build_type: [Release, Debug]
+        protobuf_shared: [ON, OFF]
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - uses: ./.github/actions/setup_tools_shared
+
+    - name: Build protobuf
+      id: build_step
+      continue-on-error: true
+      shell: bash
+      env:
+        BUILD_TYPE: ${{ matrix.build_type }}
+        PROTOBUF_SHARED: ${{ matrix.protobuf_shared }}
+      run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run ' || '' }}./osi/generate_osi_3_8_libs.sh
+
+    - name: Bundle platform package
+      shell: bash
+      run: |
+        case "${{ matrix.os }}" in
+          ubuntu-22.04) PLATFORM="linux"   ; FOLDER_NAME="linux" ;;
+          macos-14)     PLATFORM="macos"   ; FOLDER_NAME="mac" ;;
+          windows-2022) PLATFORM="windows" ; FOLDER_NAME="v10" ;;
+        esac
+
+        BUILD_TYPE_LOWER=$(echo "${{ matrix.build_type }}" | tr '[:upper:]' '[:lower:]')
+        if [[ "${{ matrix.protobuf_shared }}" == "ON" ]]; then SHARED_SUFFIX="shared"; else SHARED_SUFFIX="static"; fi
+
+        ARCHIVE_NAME="osi-${PLATFORM}-${BUILD_TYPE_LOWER}-${SHARED_SUFFIX}.tar.xz"
+        tar -cJvf "$ARCHIVE_NAME" "$FOLDER_NAME"
+        echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ env.ARCHIVE_NAME }}
+        path: ${{ env.ARCHIVE_NAME }}
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+
+    steps:
+      - name: Determine version from tag
+        shell: bash
+        run: echo "PACKAGE_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: staging
+
+      - name: Merge platform packages
+        shell: bash
+        run: |
+          mkdir -p release-assets/linux release-assets/macos release-assets/windows
+
+          while IFS= read -r archive; do
+            case "$(basename "$archive")" in
+              osi-linux-*.tar.xz)
+                tar -xJf "$archive" -C release-assets/linux
+                ;;
+              osi-macos-*.tar.xz)
+                tar -xJf "$archive" -C release-assets/macos
+                ;;
+              osi-windows-*.tar.xz)
+                tar -xJf "$archive" -C release-assets/windows
+                ;;
+            esac
+          done < <(find staging -type f -name '*.tar.xz' | sort)
+
+          tar -cJvf release-assets/osi-linux.tar.xz -C release-assets/linux linux
+          tar -cJvf release-assets/osi-macos.tar.xz -C release-assets/macos mac
+          tar -cJvf release-assets/osi-windows.tar.xz -C release-assets/windows v10
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "${{ github.ref_name }}"
+          body: 'Build for ${{ github.ref_name }} containing debug, release, static and dynamic files per platform'
+          files: release-assets/osi-*.tar.xz
