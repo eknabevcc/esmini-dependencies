@@ -73,7 +73,7 @@ build_sqlite() {
     local sqlite_zip="sqlite-amalgamation-$SQLITE_VERSION.zip"
 
     if [[ ! -d "$sqlite_dir" ]]; then
-        curl --fail --location "https://www.sqlite.org/2024/$sqlite_zip" --output "$sqlite_zip"
+        curl --fail --location "https://www.sqlite.org/2026/$sqlite_zip" --output "$sqlite_zip"
         unzip -q "$sqlite_zip"
     fi
 
