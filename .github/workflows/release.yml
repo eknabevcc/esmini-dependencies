@@ -1,0 +1,41 @@
+name: Release packages
+
+on:
+  workflow_call:
+    inputs:
+      artifact-pattern:
+        description: Artifact names to download for the release
+        type: string
+        default: '*.tar.xz'
+      package-description:
+        description: Contents of the release packages
+        type: string
+        default: debug, release, static and dynamic files per platform
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.artifact-pattern }}
+          path: staging
+          merge-multiple: true
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "${{ github.ref_name }}"
+          body: |
+            Binaries for ${{ github.ref_name }} and its dependencies.
+
+            For information about changes and new features see [release notes](https://github.com/esmini/esmini-dependencies/blob/master/release_notes.md).
+          files: staging/*.tar.xz
+          fail_on_unmatched_files: true

@@ -54,23 +54,5 @@ jobs:
 
   release:
     needs: [build]
-    runs-on: ubuntu-latest
     if: github.ref_type == 'tag'
-
-    steps:
-      - name: Determine version from tag
-        shell: bash
-        run: echo "PACKAGE_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: staging
-
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "${{ github.ref_name }}"
-          body: 'Build for ${{ github.ref_name }} containing static debug and release files per platform'
-          files: staging/**/*.tar.xz
+    uses: ./.github/workflows/release.yml
