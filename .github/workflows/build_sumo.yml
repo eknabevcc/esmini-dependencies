@@ -1,0 +1,75 @@
+name: Build & release SUMO 1.28
+
+on:
+  push:
+    tags:
+      - sumo-v[0-9]+.[0-9]+*
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+
+    steps:
+      - name: Checkout workflow repository
+        uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup_tools_shared
+
+      - name: Set up 7-Zip
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) command -v 7z >/dev/null || sudo apt-get install -q -y p7zip-full ;;
+            macOS) command -v 7zz >/dev/null || brew install sevenzip ;;
+          esac
+
+          for candidate in 7z 7zz 7za "/c/Program Files/7-Zip/7z.exe"; do
+            if command -v "$candidate" >/dev/null; then
+              echo "SEVEN_ZIP=$candidate" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "7-Zip not found" >&2
+          exit 1
+
+      - name: Build SUMO
+        shell: bash
+        run: bash ./sumo/generate_sumo_libs.sh
+
+      - name: Bundle platform package
+        shell: bash
+        run: |
+          case "${{ matrix.os }}" in
+            ubuntu-22.04) ARCHIVE_NAME="sumo-linux.tar.xz" ; FOLDER_NAME="linux" ;;
+            macos-15)     ARCHIVE_NAME="sumo-macos.tar.xz" ; FOLDER_NAME="mac" ;;
+            windows-2022) ARCHIVE_NAME="sumo-windows.tar.xz" ; FOLDER_NAME="v10" ;;
+          esac
+
+          archives=(sumo_"$FOLDER_NAME"_*.7z)
+          [[ ${#archives[@]} -eq 1 && -f "${archives[0]}" ]]
+          "$SEVEN_ZIP" x "${archives[0]}" -opackage
+          tar -cJvf "$ARCHIVE_NAME" -C package "$FOLDER_NAME"
+          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: ${{ env.ARCHIVE_NAME }}
+          if-no-files-found: error
+
+  release:
+    needs: [build]
+    if: github.ref_type == 'tag'
+    uses: ./.github/workflows/release.yml
